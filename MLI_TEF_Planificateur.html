@@ -52,6 +52,8 @@
   .tag4{color:#1f6d3a;font-weight:600;} .tag2{color:#9a5a12;font-weight:600;}
   .star{color:#c0392b;font-weight:700;}
   .rowbtn{cursor:pointer;color:#c0392b;font-weight:700;padding:0 6px;}
+  tr.needtype td{background:var(--yellow);}
+  tr.needtype td select{border-color:#e8c34a;font-weight:600;color:#8a5b12;}
   .addrow{cursor:pointer;color:var(--navy);font-weight:600;font-size:12px;}
   code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px;}
 </style>
@@ -178,10 +180,13 @@ let rows=[];
 function renderTable(){
   const tb=$('cbody');tb.innerHTML='';
   rows.forEach((r,i)=>{
+    const unset=(r.type!=='4'&&r.type!=='2');
     const tr=document.createElement('tr');
+    if(unset)tr.className='needtype';
     tr.innerHTML=`<td style="text-align:center;font-weight:600;">${i+1}</td>
       <td><input value="${r.name||''}" oninput="rows[${i}].name=this.value"></td>
-      <td><select onchange="rows[${i}].type=this.value">
+      <td><select onchange="rows[${i}].type=this.value;renderTable();">
+        ${unset?'<option value="" selected>à confirmer</option>':''}
         <option value="4"${r.type==='4'?' selected':''}>4 épr.</option>
         <option value="2"${r.type==='2'?' selected':''}>CO+EO</option></select></td>
       <td><input value="${r.num||''}" oninput="rows[${i}].num=this.value" placeholder="—"></td>
@@ -220,6 +225,7 @@ function guessCol(col){
   if(most(v=>/^[A-Za-z0-9]{3}-[A-Za-z0-9]{3}-[A-Za-z0-9]{3}$/.test(v)))return 'code';
   if(most(v=>/^\d{6,8}$/.test(v)))return 'num';
   if(most(v=>/^(4|2|co\+?eo|4\s*épr)/i.test(v))&&most(v=>v.length<=6))return 'type';
+  if(most(v=>/^\s*(ce|co|ee|eo)(\s*[,\/;+]\s*(ce|co|ee|eo))+\s*$/i.test(v)))return 'type';
   if(most(v=>/^\d{1,3}$/.test(v)))return 'ignore';
   return 'text';
 }
@@ -228,7 +234,7 @@ function renderMap(matrix,guesses){
   const nrows=pasteCols[0].length;
   let h=`<div class="warn" style="background:#eef6ff;border-color:#bcd8f2;color:#1f3b57;">
     <b>${nrows} ligne(s) détectée(s).</b> Vérifiez à quoi correspond chaque colonne, puis importez.
-    ${!guesses.includes('type')?' &nbsp;(Aucune colonne « Type » : tout le monde sera mis en <b>4 épreuves</b> — basculez ensuite les CO+EO dans le tableau, 2 clics.)':''}</div>
+    ${!guesses.includes('type')?' &nbsp;(Aucune colonne « Type » : chaque candidat sera marqué <b>« à confirmer »</b> — choisissez 4 épr. ou CO+EO dans le tableau avant de lancer. Aucun n\'est mis en 4 par défaut.)':''}</div>
     <div style="overflow-x:auto;"><table><thead><tr>`;
   pasteCols.forEach((col,i)=>{
     h+=`<th><select class="mapsel" style="width:100%;color:#20303f;">`+
@@ -252,7 +258,13 @@ function importMapped(){
   const nrows=pasteCols[nameIdx].length,nr=[];
   for(let r=0;r<nrows;r++){
     const name=(pasteCols[nameIdx][r]||'').trim();if(!name)continue;
-    let type=get('type',r);type=(type==='2'||/co\+?eo/i.test(type))?'2':'4';
+    const raw=get('type',r).trim().toLowerCase();
+    let type='';                                   // '' = à confirmer (jamais 4 par défaut)
+    const secs=raw.split(/[,\/;+]/).map(s=>s.trim()).filter(Boolean);
+    const isSecList=secs.length>=2&&secs.every(s=>/^(ce|co|ee|eo)$/.test(s));
+    if(isSecList) type=(secs.includes('ce')||secs.includes('ee'))?'4':'2';  // CE/EE présent = 4 épr., sinon CO+EO
+    else if(raw==='2'||/co\s*\+?\s*eo/.test(raw)) type='2';
+    else if(raw==='4'||/^4\s*[ée]pr/.test(raw)) type='4';
     nr.push({name,type,num:get('num',r),code:get('code',r),email:get('email',r)});
   }
   rows=nr;renderTable();
@@ -382,6 +394,11 @@ function buildSchedule(){
 let S=null;
 function run(){
   if(rows.length<2){alert('Ajoutez au moins 2 candidats.');return;}
+  const unset=rows.filter(r=>r.type!=='4'&&r.type!=='2');
+  if(unset.length){
+    alert('Type à confirmer pour :\n  • '+unset.map(r=>r.name||'(sans nom)').join('\n  • ')+'\n\nChoisissez « 4 épr. » ou « CO+EO » pour chacun avant de lancer.');
+    renderTable();return;
+  }
   if(!t2m($('startTime').value)||!t2m($('targetEnd').value)){alert('Vérifiez « heure de début » et « fin visée » (format H:MM).');return;}
   S=buildSchedule();
   renderResult();
